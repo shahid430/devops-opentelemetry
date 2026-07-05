@@ -1,0 +1,54 @@
+# Custom values for grafana/tempo
+# Repository-specific overrides based on the original observability manifests.
+
+fullnameOverride: tempo
+
+tempo:
+  reportingEnabled: false
+
+  server:
+    http_listen_port: 3200
+
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+      wal:
+        path: /var/tempo/wal
+
+  queryFrontend:
+    search:
+      max_duration: 0s
+
+  ingester:
+    max_block_duration: 5m
+
+  compactor:
+    compaction:
+      block_retention: 72h
+
+persistence:
+  enabled: false
+
+service:
+  type: ClusterIP
+
+serviceMonitor:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

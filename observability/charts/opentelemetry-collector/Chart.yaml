@@ -1,0 +1,13 @@
+apiVersion: v2
+name: opentelemetry-collector
+description: Vendored reference chart folder for open-telemetry/opentelemetry-collector. Use custom-values.yaml for repository-specific overrides.
+type: application
+version: 0.158.2
+appVersion: 0.153.0
+home: https://opentelemetry.io/
+sources:
+  - https://github.com/open-telemetry/opentelemetry-helm-charts
+  - https://github.com/open-telemetry/opentelemetry-collector
+annotations:
+  vendoredFrom: open-telemetry/opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts

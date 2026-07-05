@@ -2,22 +2,18 @@
 
 Ready-to-deploy OpenTelemetry observability setup for an AKS cluster using official Helm charts.
 
-This repository contains custom values and helper manifests for deploying:
+This repository stores chart folders under `observability/charts`. Each chart has a built-in `values.yaml` file and a separate `custom-values.yaml` file for AKS/backend-specific overrides.
 
-| Capability | Official Helm chart |
-|---|---|
-| Metrics, Prometheus Operator, Alertmanager, Grafana | `prometheus-community/kube-prometheus-stack` |
-| Logs | `grafana/loki-distributed` |
-| Traces | `grafana/tempo` |
-| OTLP telemetry ingestion | `open-telemetry/opentelemetry-collector` |
+Do not alter the built-in `values.yaml` files for environment changes. Put custom configuration in `custom-values.yaml`.
 
-The OpenTelemetry Collector receives telemetry from backend applications over OTLP and forwards:
+## Components
 
-- **Metrics** to Prometheus
-- **Logs** to Loki
-- **Traces** to Tempo
-
-Grafana is configured with Prometheus, Loki, and Tempo datasources so you can view service metrics, logs, and traces from one UI.
+| Capability | Official Helm chart | Custom override file |
+|---|---|---|
+| Metrics, Prometheus Operator, Alertmanager, Grafana | `prometheus-community/kube-prometheus-stack` | `observability/charts/kube-prometheus-stack/custom-values.yaml` |
+| Logs | `grafana/loki-distributed` | `observability/charts/loki-distributed/custom-values.yaml` |
+| Traces | `grafana/tempo` | `observability/charts/tempo/custom-values.yaml` |
+| OTLP telemetry ingestion | `open-telemetry/opentelemetry-collector` | `observability/charts/opentelemetry-collector/custom-values.yaml` |
 
 ## Architecture
 
@@ -36,71 +32,29 @@ OpenTelemetry Collector
 Grafana
 ```
 
-## Repository layout
-
-```text
-observability/
-  rendered.yaml
-  kustomize/
-  charts/
-    kube-prometheus-stack/
-      values.yaml
-    loki-distributed/
-      values.yaml
-    tempo/
-      values.yaml
-    opentelemetry-collector/
-      values.yaml
-    grafana/
-      datasources.yaml
-      backend-observability-dashboard.yaml
-    README.md
-```
-
 ## Prerequisites
-
-Install these tools locally or in your CI runner:
 
 - Azure CLI
 - kubectl
 - Helm 3
 - Access to the target AKS cluster
-- Backend applications already instrumented with OpenTelemetry SDKs or agents
+- Backend applications instrumented with OpenTelemetry SDKs or agents
 
-Check the tools:
-
-```bash
-az version
-kubectl version --client
-helm version
-```
-
-## 1. Connect to the AKS cluster
-
-Set these variables for your environment:
+## Connect to AKS
 
 ```bash
 export RESOURCE_GROUP="<your-resource-group>"
 export AKS_CLUSTER_NAME="<your-aks-cluster-name>"
-```
 
-Get AKS credentials:
-
-```bash
 az aks get-credentials \
   --resource-group "$RESOURCE_GROUP" \
   --name "$AKS_CLUSTER_NAME" \
   --overwrite-existing
-```
 
-Verify cluster access:
-
-```bash
-kubectl cluster-info
 kubectl get nodes
 ```
 
-## 2. Add the official Helm repositories
+## Add official Helm repositories
 
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -109,129 +63,59 @@ helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm
 helm repo update
 ```
 
-## 3. Create the observability namespace
+## Create namespace
 
 ```bash
 kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-## 4. Deploy kube-prometheus-stack
+## Deploy charts with custom-values.yaml
 
-This installs Prometheus, Grafana, Alertmanager, Prometheus Operator, kube-state-metrics, and node exporter.
+Deploy kube-prometheus-stack:
 
 ```bash
 helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --namespace observability \
-  --values observability/charts/kube-prometheus-stack/values.yaml
+  --values observability/charts/kube-prometheus-stack/custom-values.yaml
 ```
 
-Wait for the stack to become ready:
-
-```bash
-kubectl get pods -n observability
-kubectl rollout status deployment/kube-prometheus-stack-grafana -n observability
-```
-
-## 5. Deploy Loki Distributed
-
-Loki stores and queries logs exported by the OpenTelemetry Collector.
+Deploy Loki Distributed:
 
 ```bash
 helm upgrade --install loki-distributed grafana/loki-distributed \
   --namespace observability \
-  --values observability/charts/loki-distributed/values.yaml
+  --values observability/charts/loki-distributed/custom-values.yaml
 ```
 
-Validate Loki pods and service:
-
-```bash
-kubectl get pods -n observability | grep loki
-kubectl get svc -n observability | grep loki
-```
-
-## 6. Deploy Tempo
-
-Tempo stores and queries distributed traces exported by the OpenTelemetry Collector.
+Deploy Tempo:
 
 ```bash
 helm upgrade --install tempo grafana/tempo \
   --namespace observability \
-  --values observability/charts/tempo/values.yaml
+  --values observability/charts/tempo/custom-values.yaml
 ```
 
-Validate Tempo:
-
-```bash
-kubectl get pods -n observability | grep tempo
-kubectl get svc -n observability | grep tempo
-```
-
-## 7. Deploy OpenTelemetry Collector
-
-The collector exposes OTLP endpoints for backend applications:
-
-| Protocol | Endpoint inside AKS |
-|---|---|
-| OTLP gRPC | `opentelemetry-collector.observability.svc.cluster.local:4317` |
-| OTLP HTTP | `http://opentelemetry-collector.observability.svc.cluster.local:4318` |
-
-Install the collector:
+Deploy OpenTelemetry Collector:
 
 ```bash
 helm upgrade --install opentelemetry-collector open-telemetry/opentelemetry-collector \
   --namespace observability \
-  --values observability/charts/opentelemetry-collector/values.yaml
+  --values observability/charts/opentelemetry-collector/custom-values.yaml
 ```
 
-Validate the collector:
-
-```bash
-kubectl get pods -n observability | grep opentelemetry-collector
-kubectl get svc -n observability | grep opentelemetry-collector
-kubectl logs -n observability deploy/opentelemetry-collector --tail=100
-```
-
-## 8. Apply Grafana datasources and dashboard
-
-Apply the datasource and dashboard ConfigMaps:
+Apply Grafana datasources and dashboard:
 
 ```bash
 kubectl apply -f observability/charts/grafana/datasources.yaml
 kubectl apply -f observability/charts/grafana/backend-observability-dashboard.yaml
-```
-
-Restart Grafana so it reloads the provisioning ConfigMaps:
-
-```bash
 kubectl rollout restart deployment kube-prometheus-stack-grafana -n observability
-kubectl rollout status deployment/kube-prometheus-stack-grafana -n observability
 ```
 
-## 9. Access Grafana
+## Backend application integration
 
-Port-forward Grafana:
+Configure backend workloads to export OTLP telemetry to the collector service.
 
-```bash
-kubectl port-forward -n observability svc/kube-prometheus-stack-grafana 3000:3000
-```
-
-Open Grafana:
-
-```text
-http://localhost:3000
-```
-
-Default credentials are defined in `observability/charts/kube-prometheus-stack/values.yaml`.
-
-For production, replace the default credentials with a Kubernetes Secret, Azure Key Vault, or External Secrets.
-
-## 10. Configure backend applications for OpenTelemetry
-
-Your backend applications must export telemetry to the OpenTelemetry Collector service in the `observability` namespace.
-
-### Option A: OTLP gRPC
-
-Use this for SDKs or agents configured with OTLP gRPC:
+### OTLP gRPC
 
 ```yaml
 env:
@@ -245,9 +129,7 @@ env:
     value: "deployment.environment=dev,service.namespace=backend"
 ```
 
-### Option B: OTLP HTTP/protobuf
-
-Use this for SDKs or agents configured with OTLP HTTP:
+### OTLP HTTP/protobuf
 
 ```yaml
 env:
@@ -261,27 +143,7 @@ env:
     value: "deployment.environment=dev,service.namespace=backend"
 ```
 
-### Option C: Signal-specific OTLP endpoints
-
-Some SDKs work better with signal-specific endpoints:
-
-```yaml
-env:
-  - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
-  - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
-  - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
-  - name: OTEL_EXPORTER_OTLP_PROTOCOL
-    value: "grpc"
-  - name: OTEL_SERVICE_NAME
-    value: "backend-service-name"
-  - name: OTEL_RESOURCE_ATTRIBUTES
-    value: "deployment.environment=dev,service.namespace=backend"
-```
-
-For OTLP HTTP signal-specific endpoints, use paths like this:
+### Signal-specific HTTP endpoints
 
 ```yaml
 env:
@@ -295,116 +157,18 @@ env:
     value: "http/protobuf"
   - name: OTEL_SERVICE_NAME
     value: "backend-service-name"
-  - name: OTEL_RESOURCE_ATTRIBUTES
-    value: "deployment.environment=dev,service.namespace=backend"
 ```
 
-## 11. Example Kubernetes Deployment integration
+## Validate telemetry
 
-Add these environment variables to each backend Deployment.
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sample-backend
-  namespace: default
-spec:
-  template:
-    spec:
-      containers:
-        - name: sample-backend
-          image: your-registry/sample-backend:latest
-          env:
-            - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
-            - name: OTEL_EXPORTER_OTLP_PROTOCOL
-              value: "grpc"
-            - name: OTEL_SERVICE_NAME
-              value: "sample-backend"
-            - name: OTEL_RESOURCE_ATTRIBUTES
-              value: "deployment.environment=dev,service.namespace=backend"
-```
-
-Apply your updated backend manifest:
+Check workloads:
 
 ```bash
-kubectl apply -f <your-backend-deployment.yaml>
-kubectl rollout restart deployment/<your-backend-deployment> -n <your-backend-namespace>
-kubectl rollout status deployment/<your-backend-deployment> -n <your-backend-namespace>
+kubectl get pods -n observability
+kubectl get svc -n observability
 ```
 
-## 12. Language-specific OpenTelemetry notes
-
-### Java
-
-For Java auto-instrumentation, mount or bake the OpenTelemetry Java agent into the image and set:
-
-```yaml
-env:
-  - name: JAVA_TOOL_OPTIONS
-    value: "-javaagent:/otel/opentelemetry-javaagent.jar"
-  - name: OTEL_EXPORTER_OTLP_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
-  - name: OTEL_EXPORTER_OTLP_PROTOCOL
-    value: "grpc"
-  - name: OTEL_SERVICE_NAME
-    value: "java-backend"
-```
-
-### Node.js
-
-For Node.js, initialize OpenTelemetry in your application or preload your instrumentation file:
-
-```yaml
-env:
-  - name: NODE_OPTIONS
-    value: "--require ./instrumentation.js"
-  - name: OTEL_EXPORTER_OTLP_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4318"
-  - name: OTEL_EXPORTER_OTLP_PROTOCOL
-    value: "http/protobuf"
-  - name: OTEL_SERVICE_NAME
-    value: "node-backend"
-```
-
-### .NET
-
-For .NET applications, configure the OpenTelemetry SDK exporter endpoint:
-
-```yaml
-env:
-  - name: OTEL_EXPORTER_OTLP_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4317"
-  - name: OTEL_EXPORTER_OTLP_PROTOCOL
-    value: "grpc"
-  - name: OTEL_SERVICE_NAME
-    value: "dotnet-backend"
-```
-
-### Python
-
-For Python applications using OpenTelemetry auto-instrumentation:
-
-```yaml
-env:
-  - name: OTEL_EXPORTER_OTLP_ENDPOINT
-    value: "http://opentelemetry-collector.observability.svc.cluster.local:4318"
-  - name: OTEL_EXPORTER_OTLP_PROTOCOL
-    value: "http/protobuf"
-  - name: OTEL_SERVICE_NAME
-    value: "python-backend"
-```
-
-Run the app using your instrumentation entrypoint, for example:
-
-```bash
-opentelemetry-instrument python app.py
-```
-
-## 13. Validate telemetry ingestion
-
-Generate traffic against your backend services, then check collector logs:
+Check collector logs:
 
 ```bash
 kubectl logs -n observability deploy/opentelemetry-collector --tail=100
@@ -418,125 +182,35 @@ otelcol_receiver_accepted_metric_points
 otelcol_receiver_accepted_log_records
 ```
 
-Check backend metrics in Prometheus:
+Open Grafana:
 
-```promql
-http_server_request_duration_seconds_count
-http_server_request_duration_seconds_bucket
+```bash
+kubectl port-forward -n observability svc/kube-prometheus-stack-grafana 3000:3000
 ```
 
-Check logs in Grafana Explore using Loki:
-
-```logql
-{service_name=~".+"}
-```
-
-Check traces in Grafana Explore using Tempo:
+Then browse:
 
 ```text
-{ resource.service.name != "" }
+http://localhost:3000
 ```
 
-## 14. Troubleshooting
+## Refresh full upstream values.yaml files
 
-### Collector is not receiving telemetry
-
-Check the backend environment variables:
+The `custom-values.yaml` files are the source of your environment-specific changes. To refresh the chart built-in values from upstream:
 
 ```bash
-kubectl describe pod <backend-pod-name> -n <backend-namespace> | grep OTEL
+helm show values prometheus-community/kube-prometheus-stack > observability/charts/kube-prometheus-stack/values.yaml
+helm show values grafana/loki-distributed > observability/charts/loki-distributed/values.yaml
+helm show values grafana/tempo > observability/charts/tempo/values.yaml
+helm show values open-telemetry/opentelemetry-collector > observability/charts/opentelemetry-collector/values.yaml
 ```
 
-Check that the collector service exists:
-
-```bash
-kubectl get svc opentelemetry-collector -n observability
-```
-
-From a backend pod, test DNS resolution:
-
-```bash
-kubectl exec -n <backend-namespace> <backend-pod-name> -- nslookup opentelemetry-collector.observability.svc.cluster.local
-```
-
-### Traces are missing in Grafana
-
-Check collector span counters:
-
-```promql
-otelcol_receiver_accepted_spans
-```
-
-Check Tempo service and logs:
-
-```bash
-kubectl get svc tempo -n observability
-kubectl logs -n observability deploy/tempo --tail=100
-```
-
-### Logs are missing in Grafana
-
-Check collector log counters:
-
-```promql
-otelcol_receiver_accepted_log_records
-```
-
-Check Loki service and logs:
-
-```bash
-kubectl get svc -n observability | grep loki
-kubectl logs -n observability deploy/loki-distributed-gateway --tail=100
-```
-
-### Metrics are missing in Prometheus
-
-Check the collector Prometheus exporter endpoint:
-
-```bash
-kubectl port-forward -n observability svc/opentelemetry-collector 8889:8889
-```
-
-Open:
-
-```text
-http://localhost:8889/metrics
-```
-
-Also check Prometheus targets:
-
-```bash
-kubectl port-forward -n observability svc/kube-prometheus-stack-prometheus 9090:9090
-```
-
-Open:
-
-```text
-http://localhost:9090/targets
-```
-
-## 15. Uninstall
+## Uninstall
 
 ```bash
 helm uninstall opentelemetry-collector -n observability
 helm uninstall tempo -n observability
 helm uninstall loki-distributed -n observability
 helm uninstall kube-prometheus-stack -n observability
-```
-
-Remove namespace if no longer needed:
-
-```bash
 kubectl delete namespace observability
 ```
-
-## Production recommendations
-
-Before using this in production:
-
-- Replace default Grafana credentials.
-- Enable persistent storage for Prometheus, Loki, and Tempo where needed.
-- Consider Azure Blob Storage for Loki and Tempo long-term retention.
-- Restrict Grafana access using private ingress, Entra ID, OAuth, or IP allowlists.
-- Tune retention and resource requests based on telemetry volume.
-- Add alerts for error rate, latency, pod restarts, collector dropped spans, and Loki/Tempo ingestion failures.

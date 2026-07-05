@@ -1,0 +1,98 @@
+# Custom values for grafana/loki-distributed
+# Repository-specific overrides based on the original observability manifests.
+
+fullnameOverride: loki-distributed
+
+loki:
+  auth_enabled: false
+
+  structuredConfig:
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      tsdb_shipper:
+        active_index_directory: /var/loki/index
+        cache_location: /var/loki/cache
+      filesystem:
+        directory: /var/loki/chunks
+
+    limits_config:
+      retention_period: 168h
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 32
+
+    compactor:
+      working_directory: /var/loki/compactor
+      compaction_interval: 10m
+      retention_enabled: true
+      delete_request_store: filesystem
+
+gateway:
+  enabled: true
+  replicas: 1
+  service:
+    type: ClusterIP
+
+compactor:
+  enabled: true
+  persistence:
+    enabled: false
+
+distributor:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+ingester:
+  replicas: 1
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+querier:
+  replicas: 1
+  persistence:
+    enabled: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+queryFrontend:
+  replicas: 1
+
+ruler:
+  enabled: false
+
+serviceMonitor:
+  enabled: true
+
+prometheusRule:
+  enabled: true
