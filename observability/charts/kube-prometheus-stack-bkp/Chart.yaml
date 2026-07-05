@@ -1,0 +1,13 @@
+apiVersion: v2
+name: kube-prometheus-stack
+description: Vendored reference chart folder for prometheus-community/kube-prometheus-stack. Use custom-values.yaml for repository-specific overrides.
+type: application
+version: 87.6.0
+appVersion: v0.92.1
+home: https://github.com/prometheus-community/helm-charts
+sources:
+  - https://github.com/prometheus-community/helm-charts
+  - https://github.com/prometheus-operator/kube-prometheus
+annotations:
+  vendoredFrom: prometheus-community/kube-prometheus-stack
+  repository: https://prometheus-community.github.io/helm-charts
