@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-observability-dashboard
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  backend-observability.json: |
+    {
+      "title": "DevOps OpenTelemetry Backend Observability",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "tags": ["devops", "opentelemetry", "backend"],
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "OTLP Metric Points Received",
+          "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(otelcol_receiver_accepted_metric_points[5m])) by (receiver)",
+              "legendFormat": "{{receiver}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "OTLP Spans Received",
+          "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(otelcol_receiver_accepted_spans[5m])) by (receiver)",
+              "legendFormat": "{{receiver}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "OTLP Log Records Received",
+          "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(otelcol_receiver_accepted_log_records[5m])) by (receiver)",
+              "legendFormat": "{{receiver}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP Server Request Rate",
+          "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(http_server_request_duration_seconds_count[5m])) by (service_name)",
+              "legendFormat": "{{service_name}}"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP Server P95 Latency",
+          "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, service_name))",
+              "legendFormat": "{{service_name}}"
+            }
+          ]
+        },
+        {
+          "type": "logs",
+          "title": "Application Logs",
+          "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{service_name=~\".+\"}"
+            }
+          ]
+        }
+      ]
+    }
