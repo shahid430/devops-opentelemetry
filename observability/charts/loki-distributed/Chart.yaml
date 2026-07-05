@@ -1,13 +1,15 @@
 apiVersion: v2
-name: loki-distributed
-description: Vendored reference chart folder for grafana/loki-distributed. Use custom-values.yaml for repository-specific overrides.
-type: application
-version: 0.80.5
 appVersion: 2.9.13
-home: https://grafana.com/oss/loki/
+deprecated: true
+description: Helm chart for Grafana Loki in microservices mode
+home: https://grafana.github.io/helm-charts
+icon: https://grafana.com/docs/loki/latest/logo_and_name.png
+maintainers:
+- name: unguiculus
+name: loki-distributed
 sources:
-  - https://github.com/grafana/helm-charts
-  - https://github.com/grafana/loki
-annotations:
-  vendoredFrom: grafana/loki-distributed
-  repository: https://grafana.github.io/helm-charts
+- https://github.com/grafana/loki
+- https://grafana.com/oss/loki/
+- https://grafana.com/docs/loki/latest/
+type: application
+version: 0.80.6
