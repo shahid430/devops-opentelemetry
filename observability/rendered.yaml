@@ -1,0 +1,626 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: list-watch-resources
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - pods
+  - services
+  - namespaces
+  - replicationcontrollers
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - replicasets
+  - statefulsets
+  - daemonsets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - cronjobs
+  verbs:
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: list-watch-resources
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics
+  namespace: observability
+---
+apiVersion: v1
+data:
+  grafana-datasources.yaml: |
+    apiVersion: 1
+
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: 15s
+          httpMethod: POST
+
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        editable: false
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            - name: Trace ID
+              matcherType: label
+              matcherRegex: 'trace_id'
+              datasourceUid: tempo
+              url: '$${__value.raw}'
+              urlDisplayLabel: 'Trace ID'
+
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo:3200
+        editable: false
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            filterByTraceID: true
+            filterBySpanID: false
+            tags:
+              - key: service.name
+                value: service_name
+          tracesToMetrics:
+            datasourceUid: prometheus
+          serviceMap:
+            datasourceUid: prometheus
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-dhhdd94276
+  namespace: observability
+---
+apiVersion: v1
+data:
+  GF_AUTH_ANONYMOUS_ENABLED: "true"
+  GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+kind: ConfigMap
+metadata:
+  name: grafana-env-config-gc8h7g69c6
+  namespace: observability
+---
+apiVersion: v1
+data:
+  loki-config.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+      chunk_idle_period: 5m
+      chunk_retain_period: 30s
+      wal:
+        dir: /loki/wal
+
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      tsdb_shipper:
+        active_index_directory: /loki/index
+        cache_location: /loki/cache
+      filesystem:
+        directory: /loki/chunks
+
+    limits_config:
+      retention_period: 168h
+
+    compactor:
+      working_directory: /loki/compactor
+      compaction_interval: 10m
+      retention_enabled: true
+      delete_request_store: filesystem
+kind: ConfigMap
+metadata:
+  name: loki-config-494tb8bk5k
+  namespace: observability
+---
+apiVersion: v1
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+
+    exporters:
+      otlp/tempo:
+        endpoint: tempo:4317
+        tls:
+          insecure: true
+      prometheus:
+        endpoint: 0.0.0.0:8889
+      otlphttp/loki:
+        endpoint: http://loki:3100/otlp
+        tls:
+          insecure: true
+
+    service:
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: '0.0.0.0'
+                    port: 8888
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlphttp/loki]
+kind: ConfigMap
+metadata:
+  name: otel-collector-config-7dt7c7md69
+  namespace: observability
+---
+apiVersion: v1
+data:
+  prometheus-config.yaml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+      - job_name: 'loki'
+        static_configs:
+          - targets: ['loki:3100']
+      - job_name: 'tempo'
+        static_configs:
+          - targets: ['tempo:3200']
+      - job_name: 'grafana'
+        static_configs:
+          - targets: ['grafana:3000']
+      - job_name: 'otel-collector'
+        static_configs:
+          - targets: ['otel-collector:8889']
+      - job_name: 'otel-collector-internal'
+        static_configs:
+          - targets: ['otel-collector:8888']
+      - job_name: 'redis'
+        static_configs:
+          - targets: ['redis-exporter:9121']
+kind: ConfigMap
+metadata:
+  name: prometheus-config-7kff2777t2
+  namespace: observability
+---
+apiVersion: v1
+data:
+  tempo-config.yaml: |
+    server:
+      http_listen_port: 3200
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+
+    query_frontend:
+      search:
+        max_duration: 0s
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 72h
+kind: ConfigMap
+metadata:
+  name: tempo-config-kt2hkd4m6g
+  namespace: observability
+---
+apiVersion: v1
+data:
+  GF_SECURITY_ADMIN_PASSWORD: YWRtaW4=
+  GF_SECURITY_ADMIN_USER: YWRtaW4=
+kind: Secret
+metadata:
+  name: grafana-admin-credentials-kmmdtcbdk4
+  namespace: observability
+type: Opaque
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  ports:
+  - name: grafana
+    port: 3000
+    targetPort: 3000
+  selector:
+    app.kubernetes.io/name: grafana
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: observability
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app.kubernetes.io/name: kube-state-metrics
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  ports:
+  - name: loki
+    port: 3100
+    targetPort: 3100
+  selector:
+    app.kubernetes.io/name: loki
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  ports:
+  - name: grpc
+    port: 4317
+    targetPort: 4317
+  - name: http
+    port: 4318
+    targetPort: 4318
+  - name: internal-metrics
+    port: 8888
+    targetPort: 8888
+  - name: metrics
+    port: 8889
+    targetPort: 8889
+  selector:
+    app.kubernetes.io/name: otel-collector
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: observability
+spec:
+  ports:
+  - name: prometheus
+    port: 9090
+    targetPort: 9090
+  selector:
+    app.kubernetes.io/name: prometheus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: observability
+spec:
+  ports:
+  - name: tempo
+    port: 3200
+    targetPort: 3200
+  selector:
+    app.kubernetes.io/name: tempo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+    spec:
+      containers:
+      - envFrom:
+        - configMapRef:
+            name: grafana-env-config-gc8h7g69c6
+        - secretRef:
+            name: grafana-admin-credentials-kmmdtcbdk4
+        image: grafana/grafana:12.3
+        name: grafana
+        ports:
+        - containerPort: 3000
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+          name: config
+          subPath: grafana-datasources.yaml
+      volumes:
+      - configMap:
+          name: grafana-datasources-dhhdd94276
+        name: config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+    spec:
+      containers:
+      - image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.18.0
+        name: kube-state-metrics
+        ports:
+        - containerPort: 8080
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+      serviceAccountName: kube-state-metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loki
+    spec:
+      containers:
+      - args:
+        - -config.file=/etc/loki/loki-config.yaml
+        - -target=all
+        image: grafana/loki:3.6.6
+        name: loki
+        ports:
+        - containerPort: 3100
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /etc/loki/loki-config.yaml
+          name: config
+          subPath: loki-config.yaml
+      volumes:
+      - configMap:
+          name: loki-config-494tb8bk5k
+        name: config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+    spec:
+      containers:
+      - args:
+        - --config=/etc/otel-collector-config.yaml
+        image: otel/opentelemetry-collector-contrib:0.146.1
+        name: otel-collector
+        ports:
+        - containerPort: 4317
+        - containerPort: 4318
+        - containerPort: 8888
+        - containerPort: 8889
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /etc/otel-collector-config.yaml
+          name: config
+          subPath: otel-collector-config.yaml
+      volumes:
+      - configMap:
+          name: otel-collector-config-7dt7c7md69
+        name: config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+    spec:
+      containers:
+      - args:
+        - --config.file=/etc/prometheus/prometheus-config.yaml
+        - --storage.tsdb.path=/prometheus
+        - --storage.tsdb.retention.time=15d
+        image: prom/prometheus:v3.9.1
+        name: prometheus
+        ports:
+        - containerPort: 9090
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /etc/prometheus/prometheus-config.yaml
+          name: config
+          subPath: prometheus-config.yaml
+      volumes:
+      - configMap:
+          name: prometheus-config-7kff2777t2
+        name: config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tempo
+    spec:
+      containers:
+      - args:
+        - -config.file=/etc/tempo/tempo-config.yaml
+        - -target=all
+        image: grafana/tempo:2.10.1
+        name: tempo
+        ports:
+        - containerPort: 3200
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+        - mountPath: /etc/tempo/tempo-config.yaml
+          name: config
+          subPath: tempo-config.yaml
+      volumes:
+      - configMap:
+          name: tempo-config-kt2hkd4m6g
+        name: config
