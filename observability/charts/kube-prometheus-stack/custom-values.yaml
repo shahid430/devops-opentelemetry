@@ -24,7 +24,15 @@ grafana:
     port: 3000
 
   ingress:
-    enabled: false
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      kubernetes.io/ingress.class: nginx
+    hosts:
+      - grafana.local
+    path: /
+    pathType: Prefix
+    tls: []
 
   persistence:
     enabled: false
